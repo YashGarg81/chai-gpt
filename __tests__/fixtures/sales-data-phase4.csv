@@ -1,0 +1,11 @@
+region,units,revenue
+North,10,100
+South,20,200
+East,30,300
+West,40,400
+North,50,500
+South,,600
+East,70,700
+West,80,800
+North,90,900
+South,100,1000

@@ -1,0 +1,206 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  clerkId   String   @unique
+  email     String?  @unique
+  firstName       String?
+  lastName        String?
+  imageUrl        String?
+  bio             String?   @db.Text
+  defaultModel    String?
+  themePreference String    @default("system")
+  createdAt       DateTime  @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversations Conversation[]
+  folders       ConversationFolder[]
+  attachments   Attachment[]
+  summaries     ConversationSummary[]
+  shares        ConversationShare[]
+}
+
+model ConversationFolder {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Conversation {
+  id            String    @id @default(cuid())
+  userId        String
+  title         String    @default("New Chat")
+  model         String? // e.g. gemini-2.5-flash — per-thread model override
+  systemPrompt  String?   @db.Text
+  isPinned      Boolean   @default(false)
+  pinnedAt      DateTime?
+  isArchived     Boolean   @default(false)
+  archivedAt     DateTime?
+  deletedAt      DateTime?
+  folderId       String?
+  activeBranchId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastMessageAt  DateTime  @default(now())
+
+  user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder ConversationFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  messages    Message[]
+  branches    ConversationBranch[]
+  attachments Attachment[]
+  summaries   ConversationSummary[]
+  shares      ConversationShare[]
+
+  @@index([userId, lastMessageAt(sort: Desc)])
+  @@index([userId, isPinned, lastMessageAt(sort: Desc)])
+  @@index([userId, deletedAt, isArchived, lastMessageAt(sort: Desc)])
+  @@index([userId, folderId])
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+enum MessageStatus {
+  PENDING // created before streaming finishes
+  COMPLETE
+  ERROR
+}
+
+
+model ConversationBranch {
+  id             String   @id @default(cuid())
+  conversationId String
+  name           String   @default("main")
+  parentBranchId String?
+  forkMessageId  String?
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model Message {
+  id              String        @id @default(cuid())
+  conversationId  String
+  branchId        String?
+  parentMessageId String?
+  versionNumber   Int           @default(1)
+  supersededAt    DateTime?
+  role            MessageRole
+  status          MessageStatus @default(COMPLETE)
+  content         String        @db.Text
+  parts           Json?
+  metadata        Json?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([conversationId, branchId, createdAt])
+}
+
+enum AttachmentStatus {
+  PENDING_UPLOAD
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  DELETED
+}
+
+model Attachment {
+  id               String           @id @default(cuid())
+  ownerId          String
+  conversationId   String
+  messageId        String?
+  originalName     String
+  storageKey       String           @unique
+  mimeType         String
+  sizeBytes        Int
+  fileExtension    String
+  checksum         String?
+  processingStatus AttachmentStatus @default(PENDING_UPLOAD)
+  extractedText    String?          @db.Text
+  metadata         Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+
+  owner        User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, conversationId, deletedAt])
+  @@index([messageId])
+}
+
+model ConversationSummary {
+  id                    String   @id @default(cuid())
+  conversationId        String
+  branchId              String   @default("main")
+  userId                String
+  summaryJson           Json
+  summaryText           String   @db.Text
+  coveredUntilMessageId String?
+  coveredMessageCount   Int      @default(0)
+  version               Int      @default(1)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, branchId])
+  @@index([userId, conversationId])
+}
+
+model ConversationShare {
+  id                 String    @id @default(cuid())
+  conversationId     String
+  userId             String
+  branchId           String    @default("main")
+  tokenHash          String    @unique
+  title              String
+  snapshotJson       Json
+  includeTimestamps  Boolean   @default(true)
+  includeAttachments Boolean   @default(true)
+  showTitle          Boolean   @default(true)
+  passwordHash       String?
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, conversationId])
+  @@index([expiresAt])
+}
